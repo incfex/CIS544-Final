@@ -9,8 +9,13 @@
 using namespace std;
 
 mutex              mtx;
-condition_variable cv;
+condition_variable cv1, cv2;
 bool               ready = false;
+
+int partO = 0;
+int partI = 0;
+int prodO = 0;
+int prodI = 0;
 
 int buf[4] = {0, 0, 0, 0};
 
@@ -21,24 +26,28 @@ struct parts {
             if (buf[0] < 5) {
                 type[0]--;
                 buf[0]++;
+                return;
             }
         }
         if (type[1] > 0) {
             if (buf[1] < 5) {
                 type[1]--;
                 buf[1]++;
+                return;
             }
         }
         if (type[2] > 0) {
             if (buf[2] < 4) {
                 type[2]--;
                 buf[2]++;
+                return;
             }
         }
         if (type[3] > 0) {
             if (buf[3] < 3) {
                 type[3]--;
                 buf[3]++;
+                return;
             }
         }
     }
@@ -47,28 +56,47 @@ struct parts {
             if (buf[0] > 0) {
                 type[0]--;
                 buf[0]--;
+                return;
             }
         }
         if (type[1] > 0) {
             if (buf[1] > 0) {
                 type[1]--;
                 buf[1]--;
+                return;
             }
         }
         if (type[2] > 0) {
             if (buf[2] > 0) {
                 type[2]--;
                 buf[2]--;
+                return;
             }
         }
         if (type[3] > 0) {
             if (buf[3] > 0) {
                 type[3]--;
                 buf[3]--;
+                return;
             }
         }
     }
 };
+
+bool inorout(bool aorr) {
+    if (aorr) {
+        if(partO + partI == 0) return false;
+        if (rand() % (partO + partI) < partO)
+            return true;
+        else
+            return false;
+    }
+    if(prodO + prodI == 0) return false;
+    if (rand() % (prodO + prodI) < prodO)
+        return true;
+    else
+        return false;
+}
 
 bool checkTypes(parts p) {
     int types = 0;
@@ -131,50 +159,78 @@ parts takParts() {
 
 void PartWorker(int a) {
     srand((unsigned)time(0) - a);
-    int                it = 0;
-    parts              mp = genParts();
+    int it = 0;
+
+    partO++;
     unique_lock<mutex> ulck(mtx);
+    partO--;
 
-    printf("Part Worker ID: %d\nIteration: %d\n", a, it);
-    printf("Buffer State: (%d,%d,%d,%d)\n", buf[0], buf[1], buf[2], buf[3]);
-    printf("Place Request: (%d,%d,%d,%d)\n", mp.type[0], mp.type[1], mp.type[2],
-           mp.type[3]);
+    while (it <= 6) {
+        parts mp = genParts();
 
-    while (mp.type[0] + mp.type[1] + mp.type[2] + mp.type[3] != 0) {
-        mp.take();
-        if (mp.type[0] + mp.type[1] + mp.type[2] + mp.type[3] != 0)
-            cv.wait(ulck);
+        while (mp.type[0] + mp.type[1] + mp.type[2] + mp.type[3] != 0) {
+            printf("Part Worker ID: %d\nIteration: %d\n", a, it);
+            printf("Buffer State: (%d,%d,%d,%d)\n", buf[0], buf[1], buf[2],
+                   buf[3]);
+            printf("Place Request: (%d,%d,%d,%d)\n", mp.type[0], mp.type[1],
+                   mp.type[2], mp.type[3]);
+
+            mp.put();
+
+            printf("Updated Buffer State: (%d,%d,%d,%d)\n", buf[0], buf[1],
+                   buf[2], buf[3]);
+            printf("Updated Place Request: (%d,%d,%d,%d)\n\n", mp.type[0],
+                   mp.type[1], mp.type[2], mp.type[3]);
+
+            if (mp.type[0] + mp.type[1] + mp.type[2] + mp.type[3] != 0) {
+                partI++;
+                if (inorout(false)) cv2.notify_one();
+                cv1.wait(ulck);
+                partI--;
+            }
+        }
+        if (inorout(true)) cv2.notify_one();
+        cv1.wait(ulck);
+        it++;
     }
-
-    cv.notify_one();
-
-    printf("Updated Buffer State: (%d,%d,%d,%d)\n", buf[0], buf[1], buf[2],
-           buf[3]);
-    printf("Updated Place Request: (%d,%d,%d,%d)\n", mp.type[0], mp.type[1],
-           mp.type[2], mp.type[3]);
 }
 
 void ProdWorker(int a) {
     srand((unsigned)time(0) - a);
-    int                it = 0;
-    parts              mp = takParts();
+    int it = 0;
+
+    prodO++;
     unique_lock<mutex> ulck(mtx);
+    prodO--;
 
-    printf("Product Worker ID: %d\nIteration: %d\n", a, it);
-    printf("Buffer State: (%d,%d,%d,%d)\n", buf[0], buf[1], buf[2], buf[3]);
-    printf("Pickup Request: (%d,%d,%d,%d)\n", mp.type[0], mp.type[1],
-           mp.type[2], mp.type[3]);
+    while (it <= 6) {
+        parts mp = takParts();
 
-    while (mp.type[0] + mp.type[1] + mp.type[2] + mp.type[3] != 0) {
-        mp.take();
-        if (mp.type[0] + mp.type[1] + mp.type[2] + mp.type[3] != 0)
-            cv.wait(ulck);
+        while (mp.type[0] + mp.type[1] + mp.type[2] + mp.type[3] != 0) {
+            printf("Product Worker ID: %d\nIteration: %d\n", a, it);
+            printf("Buffer State: (%d,%d,%d,%d)\n", buf[0], buf[1], buf[2],
+                   buf[3]);
+            printf("Pickup Request: (%d,%d,%d,%d)\n", mp.type[0], mp.type[1],
+                   mp.type[2], mp.type[3]);
+
+            mp.take();
+
+            printf("Updated Buffer State: (%d,%d,%d,%d)\n", buf[0], buf[1],
+                   buf[2], buf[3]);
+            printf("Updated Pickup Request: (%d,%d,%d,%d)\n\n", mp.type[0],
+                   mp.type[1], mp.type[2], mp.type[3]);
+
+            if (mp.type[0] + mp.type[1] + mp.type[2] + mp.type[3] != 0) {
+                prodI++;
+                if (inorout(true)) cv1.notify_one();
+                cv2.wait(ulck);
+                prodI--;
+            }
+        }
+        if (inorout(false)) cv1.notify_one();
+        cv2.wait(ulck);
+        it++;
     }
-
-    printf("Updated Buffer State: (%d,%d,%d,%d)\n", buf[0], buf[1], buf[2],
-           buf[3]);
-    printf("Updated Pickup Request: (%d,%d,%d,%d)\n", mp.type[0], mp.type[1],
-           mp.type[2], mp.type[3]);
 }
 
 int main() {
