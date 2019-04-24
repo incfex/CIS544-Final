@@ -22,77 +22,53 @@ int buf[4] = {0, 0, 0, 0};
 struct parts {
     int  type[4] = {0, 0, 0, 0};
     void put() {
-        if (type[0] > 0) {
-            if (buf[0] < 5) {
-                type[0]--;
-                buf[0]++;
-                return;
-            }
+        while (type[0] > 0 && buf[0] < 5) {
+            type[0]--;
+            buf[0]++;
         }
-        if (type[1] > 0) {
-            if (buf[1] < 5) {
-                type[1]--;
-                buf[1]++;
-                return;
-            }
+        while (type[1] > 0 && buf[1] < 5) {
+            type[1]--;
+            buf[1]++;
         }
-        if (type[2] > 0) {
-            if (buf[2] < 4) {
-                type[2]--;
-                buf[2]++;
-                return;
-            }
+        while (type[2] > 0 && buf[2] < 4) {
+            type[2]--;
+            buf[2]++;
         }
-        if (type[3] > 0) {
-            if (buf[3] < 3) {
-                type[3]--;
-                buf[3]++;
-                return;
-            }
+        while (type[3] > 0 && buf[3] < 3) {
+            type[3]--;
+            buf[3]++;
         }
     }
     void take() {
-        if (type[0] > 0) {
-            if (buf[0] > 0) {
-                type[0]--;
-                buf[0]--;
-                return;
-            }
+        while (type[0] > 0 && buf[0] > 0) {
+            type[0]--;
+            buf[0]--;
         }
-        if (type[1] > 0) {
-            if (buf[1] > 0) {
-                type[1]--;
-                buf[1]--;
-                return;
-            }
+        while (type[1] > 0 && buf[1] > 0) {
+            type[1]--;
+            buf[1]--;
         }
-        if (type[2] > 0) {
-            if (buf[2] > 0) {
-                type[2]--;
-                buf[2]--;
-                return;
-            }
+        while (type[2] > 0 && buf[2] > 0) {
+            type[2]--;
+            buf[2]--;
         }
-        if (type[3] > 0) {
-            if (buf[3] > 0) {
-                type[3]--;
-                buf[3]--;
-                return;
-            }
+        while (type[3] > 0 && buf[3] > 0) {
+            type[3]--;
+            buf[3]--;
         }
     }
 };
 
 bool inorout(bool aorr) {
     if (aorr) {
-        if(partO + partI == 0) return false;
-        if (rand() % (partO + partI) < partO)
+        if (partO + partI == 0) return false;
+        if (rand() % (partO + partI) < partI)
             return true;
         else
             return false;
     }
-    if(prodO + prodI == 0) return false;
-    if (rand() % (prodO + prodI) < prodO)
+    if (prodO + prodI == 0) return false;
+    if (rand() % (prodO + prodI) < prodI)
         return true;
     else
         return false;
@@ -160,15 +136,18 @@ parts takParts() {
 void PartWorker(int a) {
     srand((unsigned)time(0) - a);
     int it = 0;
-
     partO++;
     unique_lock<mutex> ulck(mtx);
     partO--;
 
     while (it <= 6) {
-        parts mp = genParts();
+        this_thread::sleep_for(chrono::milliseconds(rand() % 5 + 2));
+        parts mp   = genParts();
+        int   bump = 0;
+        parts sta  = mp;
 
-        while (mp.type[0] + mp.type[1] + mp.type[2] + mp.type[3] != 0) {
+        while (mp.type[0] + mp.type[1] + mp.type[2] + mp.type[3] != 0
+               && it <= 6) {
             printf("Part Worker ID: %d\nIteration: %d\n", a, it);
             printf("Buffer State: (%d,%d,%d,%d)\n", buf[0], buf[1], buf[2],
                    buf[3]);
@@ -182,15 +161,34 @@ void PartWorker(int a) {
             printf("Updated Place Request: (%d,%d,%d,%d)\n\n", mp.type[0],
                    mp.type[1], mp.type[2], mp.type[3]);
 
-            if (mp.type[0] + mp.type[1] + mp.type[2] + mp.type[3] != 0) {
+            bool same = true;
+            if (bump > 3) {
+                bump = 0;
+                printf("DeadLock!\n\n");
+                break;
+            }
+            for (int i = 0; i < 4; i++) {
+                if (mp.type[i] != sta.type[i]) same = false;
+            }
+            if (same)
+                bump++;
+            else {
+                sta  = mp;
+                bump = 0;
+            }
+
+            if (mp.type[0] + mp.type[1] + mp.type[2] + mp.type[3] == 0) break;
+
+            if (partO + partI == 0) continue;
+            if (inorout(true)) {
+                cv1.notify_one();
+            } else {
                 partI++;
-                if (inorout(false)) cv2.notify_one();
                 cv1.wait(ulck);
                 partI--;
+                this_thread::sleep_for(chrono::milliseconds(1));
             }
         }
-        if (inorout(true)) cv2.notify_one();
-        cv1.wait(ulck);
         it++;
     }
 }
@@ -204,9 +202,13 @@ void ProdWorker(int a) {
     prodO--;
 
     while (it <= 6) {
-        parts mp = takParts();
+        this_thread::sleep_for(chrono::milliseconds(rand() % 5 + 2));
+        parts mp   = takParts();
+        int   bump = 0;
+        parts sta  = mp;
 
-        while (mp.type[0] + mp.type[1] + mp.type[2] + mp.type[3] != 0) {
+        while (mp.type[0] + mp.type[1] + mp.type[2] + mp.type[3] != 0
+               && it <= 6) {
             printf("Product Worker ID: %d\nIteration: %d\n", a, it);
             printf("Buffer State: (%d,%d,%d,%d)\n", buf[0], buf[1], buf[2],
                    buf[3]);
@@ -220,15 +222,34 @@ void ProdWorker(int a) {
             printf("Updated Pickup Request: (%d,%d,%d,%d)\n\n", mp.type[0],
                    mp.type[1], mp.type[2], mp.type[3]);
 
-            if (mp.type[0] + mp.type[1] + mp.type[2] + mp.type[3] != 0) {
+            if (bump > 3) {
+                bump = 0;
+                printf("DeadLock!\n\n");
+                break;
+            }
+            bool same = true;
+            for (int i = 0; i < 4; i++) {
+                if (mp.type[i] != sta.type[i]) same = false;
+            }
+            if (same)
+                bump++;
+            else {
+                sta  = mp;
+                bump = 0;
+            }
+
+            if (mp.type[0] + mp.type[1] + mp.type[2] + mp.type[3] == 0) break;
+
+            if (prodO + prodI == 0) continue;
+            if (inorout(false)) {
+                cv2.notify_one();
+            } else {
                 prodI++;
-                if (inorout(true)) cv1.notify_one();
                 cv2.wait(ulck);
                 prodI--;
+                this_thread::sleep_for(chrono::milliseconds(1));
             }
         }
-        if (inorout(false)) cv1.notify_one();
-        cv2.wait(ulck);
         it++;
     }
 }
