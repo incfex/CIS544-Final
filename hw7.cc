@@ -9,7 +9,7 @@
 using namespace std;
 
 mutex              mtx;
-condition_variable cv1, cv2;
+condition_variable cv1;
 bool               ready = false;
 
 int partO = 0;
@@ -69,6 +69,20 @@ bool inorout(bool aorr) {
     }
     if (prodO + prodI == 0) return false;
     if (rand() % (prodO + prodI) < prodI)
+        return true;
+    else
+        return false;
+}
+
+bool inorout() {
+    //false: calling outside thread, true: calling inside thread.
+    if (partO + partI + prodO + prodI == 0) { return false; }
+    int ra = rand() % (partO + partI + prodO + prodI);
+    printf(
+        "Random number is: %d, inside thread no. %d, outside thread no. %d\n",
+        ra, (partI + prodI), (partO + prodO));
+    fflush(stdout);
+    if (ra <= (partI + prodI))
         return true;
     else
         return false;
@@ -136,12 +150,12 @@ parts takParts() {
 void PartWorker(int a) {
     srand((unsigned)time(0) - a);
     int it = 0;
-    partO++;
-    unique_lock<mutex> ulck(mtx);
-    partO--;
 
     while (it <= 6) {
+        partO++;
         this_thread::sleep_for(chrono::milliseconds(rand() % 5 + 2));
+        unique_lock<mutex> ulck(mtx);
+        partO--;
         parts mp   = genParts();
         int   bump = 0;
         parts sta  = mp;
@@ -180,15 +194,14 @@ void PartWorker(int a) {
             if (mp.type[0] + mp.type[1] + mp.type[2] + mp.type[3] == 0) break;
 
             if (partO + partI == 0) continue;
-            if (inorout(true)) {
-                cv1.notify_one();
-            } else {
-                partI++;
-                cv1.wait(ulck);
-                partI--;
-                this_thread::sleep_for(chrono::milliseconds(1));
-            }
+            if (inorout()) { cv1.notify_one(); }
+            partI++;
+            cv1.wait(ulck);
+            partI--;
+            this_thread::sleep_for(chrono::milliseconds(1));
         }
+        if (inorout()) { cv1.notify_one(); }
+        ulck.unlock();
         it++;
     }
 }
@@ -197,12 +210,11 @@ void ProdWorker(int a) {
     srand((unsigned)time(0) - a);
     int it = 0;
 
-    prodO++;
-    unique_lock<mutex> ulck(mtx);
-    prodO--;
-
     while (it <= 6) {
+        prodO++;
         this_thread::sleep_for(chrono::milliseconds(rand() % 5 + 2));
+        unique_lock<mutex> ulck(mtx);
+        prodO--;
         parts mp   = takParts();
         int   bump = 0;
         parts sta  = mp;
@@ -241,21 +253,20 @@ void ProdWorker(int a) {
             if (mp.type[0] + mp.type[1] + mp.type[2] + mp.type[3] == 0) break;
 
             if (prodO + prodI == 0) continue;
-            if (inorout(false)) {
-                cv2.notify_one();
-            } else {
-                prodI++;
-                cv2.wait(ulck);
-                prodI--;
-                this_thread::sleep_for(chrono::milliseconds(1));
-            }
+            if (inorout()) { cv1.notify_one(); }
+            prodI++;
+            cv1.wait(ulck);
+            prodI--;
+            this_thread::sleep_for(chrono::milliseconds(1));
         }
+        if (inorout()) { cv1.notify_one(); }
+        ulck.unlock();
         it++;
     }
 }
 
 int main() {
-    const int m = 20, n = 20;
+    const int m = 50, n = 20;
     thread    partW[m];
     thread    prodW[n];
     for (int i = 0; i < n; i++) {
